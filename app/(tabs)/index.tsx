@@ -1,98 +1,141 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { MessageBubble } from "@/components/chat/message-bubble";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { useThemeColor } from "@/hooks/use-theme-color";
+import type { Message } from "@/lib/chat";
+import { useChatStore } from "@/store/chatStore";
+import { FlashList } from "@shopify/flash-list";
+import { useEffect, useState } from "react";
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+export default function ChatScreen() {
+  const insets = useSafeAreaInsets();
+  const [input, setInput] = useState("");
+  const messages = useChatStore((state) => state.messages);
+  const isStreaming = useChatStore((state) => state.isStreaming);
+  const error = useChatStore((state) => state.error);
+  const init = useChatStore((state) => state.init);
+  const sendMessage = useChatStore((state) => state.sendMessage);
 
-export default function HomeScreen() {
+  const borderColor = useThemeColor({}, "border");
+  const inputBackground = useThemeColor({}, "surface");
+  const tint = useThemeColor({}, "tint");
+  const textColor = useThemeColor({}, "text");
+  const onTint = useThemeColor({}, "onTint");
+  const placeholderColor = useThemeColor({}, "placeholder");
+  const errorColor = useThemeColor({}, "error");
+
+  useEffect(() => {
+    init();
+  }, [init]);
+
+  const handleSend = () => {
+    if (!input.trim() || isStreaming) return;
+    sendMessage(input);
+    setInput("");
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
+    <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.list}>
+        <FlashList<Message>
+          data={messages}
+          keyExtractor={(message) => message.id}
+          renderItem={({ item }) => <MessageBubble message={item} />}
+          contentContainerStyle={styles.listContent}
+          // FlashList v2 auto-measures items and has dropped estimatedItemSize;
+          // this is the prop it added specifically for chat UIs — it keeps the
+          // list pinned to the bottom as new tokens arrive, but only while the
+          // user is already near the bottom, so scrolling up to read earlier
+          // messages stops the auto-follow immediately.
+          maintainVisibleContentPosition={{
+            autoscrollToBottomThreshold: 0.2,
+            startRenderingFromBottom: true,
+          }}
+          ListEmptyComponent={
+            <ThemedText style={styles.emptyText}>Say something to start the conversation.</ThemedText>
+          }
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+      </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
+      {error ? (
+        <ThemedText style={[styles.errorText, { color: errorColor }]} numberOfLines={2}>
+          {error}
         </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      ) : null}
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={insets.bottom}
+      >
+        <View style={[styles.inputRow, { borderTopColor: borderColor, paddingBottom: insets.bottom + 8 }]}>
+          <TextInput
+            style={[styles.input, { backgroundColor: inputBackground, color: textColor }]}
+            value={input}
+            onChangeText={setInput}
+            placeholder="Message Relay…"
+            placeholderTextColor={placeholderColor}
+            multiline
+            editable={!isStreaming}
+          />
+          <Pressable
+            onPress={handleSend}
+            disabled={!input.trim() || isStreaming}
+            style={[styles.sendButton, { backgroundColor: tint, opacity: !input.trim() || isStreaming ? 0.5 : 1 }]}
+          >
+            <ThemedText style={[styles.sendButtonText, { color: onTint }]}>
+              {isStreaming ? "…" : "Send"}
+            </ThemedText>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  list: {
+    flex: 1,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  listContent: {
+    paddingVertical: 12,
+  },
+  emptyText: {
+    textAlign: "center",
+    marginTop: 40,
+    opacity: 0.6,
+  },
+  errorText: {
+    textAlign: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  input: {
+    flex: 1,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    maxHeight: 120,
+    fontSize: 16,
+  },
+  sendButton: {
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  sendButtonText: {
+    fontWeight: "600",
   },
 });

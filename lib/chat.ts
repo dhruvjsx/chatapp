@@ -32,6 +32,17 @@ export async function createConversation(title?: string): Promise<Conversation> 
   return data;
 }
 
+export async function fetchLatestConversation(): Promise<Conversation | null> {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+  return data[0] ?? null;
+}
+
 export async function fetchMessages(conversationId: string): Promise<Message[]> {
   const { data, error } = await supabase
     .from("messages")

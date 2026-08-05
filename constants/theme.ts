@@ -8,22 +8,38 @@ import { Platform } from 'react-native';
 const tintColorLight = '#0a7ea4';
 const tintColorDark = '#fff';
 
+// Single source of truth for every color in the app. Anything that varies by
+// light/dark theme belongs here, read through useThemeColor() — never as an
+// inline light/dark literal in a component. `tint` is white in dark mode, so
+// anything drawn *on top of* a tint-colored surface (button labels, the sent
+// message bubble) must use `onTint`, not a hardcoded white, or it goes
+// invisible in dark mode.
 export const Colors = {
   light: {
     text: '#11181C',
     background: '#fff',
     tint: tintColorLight,
+    onTint: '#fff',
     icon: '#687076',
     tabIconDefault: '#687076',
     tabIconSelected: tintColorLight,
+    surface: '#F0F1F3',
+    border: '#E2E4E8',
+    placeholder: '#9BA1A6',
+    error: '#D92D20',
   },
   dark: {
     text: '#ECEDEE',
     background: '#151718',
     tint: tintColorDark,
+    onTint: '#151718',
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
     tabIconSelected: tintColorDark,
+    surface: '#232526',
+    border: '#2A2D2E',
+    placeholder: '#9BA1A6',
+    error: '#D92D20',
   },
 };
 
