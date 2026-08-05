@@ -43,15 +43,46 @@ export async function fetchLatestConversation(): Promise<Conversation | null> {
   return data[0] ?? null;
 }
 
-export async function fetchMessages(conversationId: string): Promise<Message[]> {
+/**
+ * Fetches the most recent `limit` messages, oldest first (ready to render
+ * directly). Paginated rather than loading the whole conversation so the
+ * initial load stays cheap no matter how long the history has grown — see
+ * fetchOlderMessages for backfilling earlier history on scroll-up.
+ */
+export async function fetchRecentMessages(conversationId: string, limit: number): Promise<Message[]> {
   const { data, error } = await supabase
     .from("messages")
     .select("*")
     .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(limit);
 
   if (error) throw error;
-  return data;
+  return data.reverse();
+}
+
+/**
+ * Fetches up to `limit` messages older than `beforeCreatedAt`, oldest first,
+ * for prepending to an already-loaded page. Cursors on created_at rather
+ * than an offset so a page boundary doesn't shift under concurrent inserts.
+ * Known gap: two messages inserted in the same millisecond would tie on the
+ * cursor — acceptable here since timestamps are server-generated per row.
+ */
+export async function fetchOlderMessages(
+  conversationId: string,
+  beforeCreatedAt: string,
+  limit: number
+): Promise<Message[]> {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .lt("created_at", beforeCreatedAt)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data.reverse();
 }
 
 /**

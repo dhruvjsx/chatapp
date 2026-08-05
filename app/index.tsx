@@ -5,8 +5,16 @@ import { useThemeColor } from "@/hooks/use-theme-color";
 import type { Message } from "@/lib/chat";
 import { useChatStore } from "@/store/chatStore";
 import { FlashList } from "@shopify/flash-list";
-import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function ChatScreen() {
@@ -17,6 +25,8 @@ export default function ChatScreen() {
   const error = useChatStore((state) => state.error);
   const init = useChatStore((state) => state.init);
   const sendMessage = useChatStore((state) => state.sendMessage);
+  const loadOlderMessages = useChatStore((state) => state.loadOlderMessages);
+  const isLoadingOlder = useChatStore((state) => state.isLoadingOlder);
 
   const borderColor = useThemeColor({}, "border");
   const inputBackground = useThemeColor({}, "surface");
@@ -25,6 +35,14 @@ export default function ChatScreen() {
   const onTint = useThemeColor({}, "onTint");
   const placeholderColor = useThemeColor({}, "placeholder");
   const errorColor = useThemeColor({}, "error");
+
+  const renderItem = useCallback(({ item }: { item: Message }) => <MessageBubble message={item} />, []);
+
+  const historyLoader = isLoadingOlder ? (
+    <View style={styles.historyLoader}>
+      <ActivityIndicator size="small" color={textColor} />
+    </View>
+  ) : null;
 
   useEffect(() => {
     init();
@@ -42,17 +60,39 @@ export default function ChatScreen() {
         <FlashList<Message>
           data={messages}
           keyExtractor={(message) => message.id}
-          renderItem={({ item }) => <MessageBubble message={item} />}
+          renderItem={renderItem}
           contentContainerStyle={styles.listContent}
+          // Opens the list scrolled to the latest message. Deliberately NOT
+          // maintainVisibleContentPosition.startRenderingFromBottom: that prop
+          // also keeps a live marginTop on the whole rendered block, recomputed
+          // from total content height on every render, to cosmetically pin a
+          // short conversation to the bottom of the screen. Since it depends on
+          // total height, it recalculates on every streamed token and reflows
+          // (shifts) every already-rendered message — including ones the user
+          // has scrolled up to read — not just the growing one. initialScrollIndex
+          // gets the same "open at the bottom" result as a one-shot scroll with
+          // no ongoing layout side effect.
+          initialScrollIndex={messages.length > 0 ? messages.length - 1 : undefined}
           // FlashList v2 auto-measures items and has dropped estimatedItemSize;
           // this is the prop it added specifically for chat UIs — it keeps the
           // list pinned to the bottom as new tokens arrive, but only while the
           // user is already near the bottom, so scrolling up to read earlier
           // messages stops the auto-follow immediately.
+          // animateAutoScrollToBottom is off on purpose: the message content
+          // (and thus list height) changes every UI_FLUSH_MS tick, so an
+          // *animated* scrollToEnd gets re-issued mid-animation on every tick
+          // and visibly stutters. An instant snap every tick reads as smooth
+          // continuous tracking instead of a fight between animations.
           maintainVisibleContentPosition={{
             autoscrollToBottomThreshold: 0.2,
-            startRenderingFromBottom: true,
+            animateAutoScrollToBottom: false,
           }}
+          // Fires once the oldest loaded message scrolls fully into view near
+          // the top; loadOlderMessages() prepends the next page (guarded
+          // against overlapping calls and an exhausted history in the store).
+          onStartReached={loadOlderMessages}
+          onStartReachedThreshold={0.2}
+          ListHeaderComponent={historyLoader}
           ListEmptyComponent={
             <ThemedText style={styles.emptyText}>Say something to start the conversation.</ThemedText>
           }
@@ -108,6 +148,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 40,
     opacity: 0.6,
+  },
+  historyLoader: {
+    paddingVertical: 12,
+    alignItems: "center",
   },
   errorText: {
     textAlign: "center",

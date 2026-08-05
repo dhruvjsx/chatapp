@@ -1,4 +1,4 @@
-import { StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import type { Message } from "@/lib/chat";
 import { ThemedText } from "@/components/themed-text";
 import { useThemeColor } from "@/hooks/use-theme-color";
@@ -14,8 +14,7 @@ export function MessageBubble({ message }: { message: Message }) {
   const isFailed = message.status === "error" && message.content.length === 0;
 
   let displayText = message.content;
-  if (isEmptyStreaming) displayText = "…";
-  else if (isFailed) displayText = "⚠ Failed to respond";
+  if (isFailed) displayText = "⚠ Failed to respond";
 
   return (
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
@@ -27,9 +26,13 @@ export function MessageBubble({ message }: { message: Message }) {
             : { backgroundColor: assistantBackground },
         ]}
       >
-        <ThemedText style={isUser ? { color: userText } : { color: assistantText }}>
-          {displayText}
-        </ThemedText>
+        {isEmptyStreaming ? (
+          <ActivityIndicator size="small" color={assistantText} />
+        ) : (
+          <ThemedText style={isUser ? { color: userText } : { color: assistantText }}>
+            {displayText}
+          </ThemedText>
+        )}
       </View>
     </View>
   );

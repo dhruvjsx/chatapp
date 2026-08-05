@@ -8,3 +8,14 @@
 //   writes/sec at the DB for a single response.
 export const UI_FLUSH_MS = 50;
 export const SYNC_EVERY_N_TICKS = 6;
+
+// How many messages to fetch per page: the initial load (most recent) and
+// each "load older" batch triggered by scrolling to the top. Keeps the
+// initial fetch cheap regardless of how long the conversation has grown.
+export const MESSAGES_PAGE_SIZE = 50;
+
+// Floor on how long the "loading older messages" spinner stays up. A fast
+// network can resolve the fetch in well under this, but flashing the loader
+// for a few ms reads as a glitch rather than a load — this makes it a
+// perceptible, consistent loading state instead.
+export const MIN_HISTORY_LOADER_MS = 2000;
