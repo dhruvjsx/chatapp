@@ -64,7 +64,13 @@ See [CLAUDE.md](./CLAUDE.md) for the full assignment brief and constraints.
 ## What's skipped (so far)
 
 - Web dashboard — not started.
-- `ConversationExporter` Kotlin TurboModule — not started.
+- `ConversationExporter` Kotlin TurboModule — not started. The chat header
+  ([components/chat/chat-header.tsx](./components/chat/chat-header.tsx)) has
+  the "Relay AI" top bar and a three-dot menu with "Export as Markdown" /
+  "Export as JSON" wired to the exact calling contract
+  ([lib/conversationExporter.ts](./lib/conversationExporter.ts)), so tapping
+  it surfaces a clear "not available yet" alert instead of a crash — the
+  native side is the only piece left to build.
 - Offline queue / MMKV persistence / connectivity detection — P1, not started.
   Right now a send while offline just fails; there's no retry queue yet.
 - Multi-conversation UI — the app currently loads/creates a single ongoing
@@ -74,6 +80,11 @@ See [CLAUDE.md](./CLAUDE.md) for the full assignment brief and constraints.
 
 ## Known bugs / gaps
 
+- A message arriving mid-stream (from another client, or another turn)
+  interleaves into the timeline immediately rather than blocking or queueing
+  — see ARCHITECTURE.md's "Offline / conflict model" section for the
+  decision and the gap it doesn't cover (no arbitration for which client
+  calls the LLM on a message from another client).
 - If the OpenRouter request fails partway through a stream, the partial
   assistant reply is kept and marked `status: "error"` rather than retried
   automatically.

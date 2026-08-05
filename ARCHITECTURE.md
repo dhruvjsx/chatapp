@@ -74,6 +74,33 @@ tier, not the app code:
 
 ## Offline / conflict model — what's not handled
 
+- **Message arriving mid-stream**: decided as interleave, not block or
+  queue. `mergeMessage` (`store/chatStore.ts`) merges every Realtime row the
+  instant it arrives, regardless of whether this device's `isStreaming` is
+  true for some other message — `isStreaming` only gates this device's own
+  composer, it never gates rendering. Two streaming assistant bubbles (this
+  device's own, updating every 50ms from its in-process token stream; and
+  another device's, updating in ~300ms chunks as its upserts echo back
+  through Realtime) can be on screen at once, each keyed by its own id. The
+  alternative (block new messages from rendering until the local stream
+  finishes) was rejected because it makes a slow LLM reply on this device
+  delay a message from another client showing up at all — directly
+  defeating the ~1s real-time sync goal. New rows are inserted in
+  `created_at` order rather than always appended, specifically to keep this
+  correct even though the locally-optimistic message this device is
+  streaming was timestamped off the client clock before the server had a
+  say (see the comment on `mergeMessage`).
+- **No arbitration for who replies.** Nothing decides which client calls the
+  LLM for a given user message — only the device whose composer sent it
+  ever calls OpenRouter for it. A message inserted by another client (e.g.
+  the web dashboard, once built) does not get an assistant reply unless
+  that client also triggers a completion for it. If two clients are both
+  open on the same conversation and both react to the same inbound message,
+  both would independently start a completion, producing two assistant
+  replies for one user turn. Fixing this needs a single source of truth for
+  "who answers" (a Postgres trigger + Edge Function, or a claimed-by lock
+  column) — out of scope here since it needs a real backend function, not
+  just a client-side change.
 - No offline queue yet. If `upsertMessage` fails (device offline, request
   timeout), the error is surfaced but the message is not retried or queued —
   it's silently missing from Supabase even though it stayed visible,

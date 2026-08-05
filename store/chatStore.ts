@@ -15,12 +15,36 @@ import { create } from "zustand";
 
 let realtimeChannel: RealtimeChannel | null = null;
 
+// Called for every Realtime row, regardless of whether *this* device is
+// mid-stream on some other message right now — see the "message arrives
+// mid-stream" note on subscribeToMessages below for why merging is
+// unconditional. This function only decides *where* an incoming row lands.
+//
+// An existing id is a content/status patch (this device's own streaming
+// upsert echoing back, or another device patching its own message) — replace
+// in place so array position, and thus scroll position, doesn't move.
+//
+// A new id is inserted in created_at order rather than always appended.
+// In practice a brand-new row's server-assigned created_at is later than
+// everything already loaded, so this is almost always equivalent to
+// appending — but "almost always" isn't "always": the *locally optimistic*
+// message this device is still streaming was timestamped off the client's
+// own clock before the server had a say, so a new row from another client
+// arriving mid-stream could sort earlier than it if that clock is skewed.
+// Sorting here means a message from another client always renders in its
+// correct chronological slot on first paint, not just after the echo of
+// this device's own write corrects its timestamp a few hundred ms later.
 function mergeMessage(messages: Message[], incoming: Message): Message[] {
   const index = messages.findIndex((m) => m.id === incoming.id);
-  if (index === -1) return [...messages, incoming];
-  const next = messages.slice();
-  next[index] = incoming;
-  return next;
+  if (index !== -1) {
+    const next = messages.slice();
+    next[index] = incoming;
+    return next;
+  }
+
+  const insertAt = messages.findIndex((m) => m.created_at > incoming.created_at);
+  if (insertAt === -1) return [...messages, incoming];
+  return [...messages.slice(0, insertAt), incoming, ...messages.slice(insertAt)];
 }
 
 type ChatState = {
@@ -56,6 +80,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
 
       realtimeChannel?.unsubscribe();
+      // Decision: interleave, not block or queue. A row from another client
+      // (or another turn) merges in the instant it arrives, even while this
+      // device's own isStreaming is true for a *different* message — the two
+      // are independent turns, each keyed by its own id, so neither waits on
+      // the other. Blocking until the local stream finishes would mean a
+      // slow LLM reply on this device delays a message from another client
+      // showing up at all, which defeats the ~1s real-time sync goal.
+      // isStreaming only gates *this* device's own composer (see sendMessage
+      // / app/index.tsx) — it has no bearing on what's rendered here, so two
+      // streaming assistant bubbles (this device's own token-by-token one,
+      // and another device's relayed via its own upsert cadence) can be on
+      // screen at once. See ARCHITECTURE.md for the gap this doesn't cover:
+      // nothing arbitrates *who* calls the LLM for a message from another
+      // client.
       realtimeChannel = subscribeToMessages(conversation.id, (message) => {
         set((state) => ({ messages: mergeMessage(state.messages, message) }));
       });

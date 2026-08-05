@@ -1,13 +1,16 @@
+import { ChatHeader } from "@/components/chat/chat-header";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import type { Message } from "@/lib/chat";
+import { exportConversation, type ExportFormat } from "@/lib/conversationExporter";
 import { useChatStore } from "@/store/chatStore";
 import { FlashList } from "@shopify/flash-list";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -27,6 +30,7 @@ export default function ChatScreen() {
   const sendMessage = useChatStore((state) => state.sendMessage);
   const loadOlderMessages = useChatStore((state) => state.loadOlderMessages);
   const isLoadingOlder = useChatStore((state) => state.isLoadingOlder);
+  const conversationId = useChatStore((state) => state.conversationId);
 
   const borderColor = useThemeColor({}, "border");
   const inputBackground = useThemeColor({}, "surface");
@@ -54,8 +58,19 @@ export default function ChatScreen() {
     setInput("");
   };
 
+  const handleExport = async (format: ExportFormat) => {
+    if (!conversationId) return;
+    try {
+      const result = await exportConversation(conversationId, format);
+      Alert.alert("Export complete", `Saved to ${result.uri}`);
+    } catch (err) {
+      Alert.alert("Export unavailable", err instanceof Error ? err.message : "Something went wrong.");
+    }
+  };
+
   return (
-    <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
+    <ThemedView style={styles.container}>
+      <ChatHeader onExport={handleExport} />
       <View style={styles.list}>
         <FlashList<Message>
           data={messages}
