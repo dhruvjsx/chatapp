@@ -37,29 +37,63 @@ serves double duty: it's what makes the phone pick up a second client's edits
 to the same conversation, and it's what makes the phone's own writes echoing
 back through Realtime a no-op instead of a duplicate bubble.
 
-## Offline queue — removed
+## Offline queue
 
-An earlier pass had a `store/offlineQueueStore.ts`: a separate Zustand store
-that detected connectivity via `@react-native-community/netinfo`, persisted
-a send queue through `react-native-mmkv`, and flushed it strictly FIFO on
-reconnect, with `chatStore.sendMessage` checking online status before
-deciding to send live or enqueue.
+`store/offlineQueueStore.ts` is a separate Zustand store, not part of
+`chatStore`, so the connectivity/flush logic is self-contained and readable
+on its own. It holds an `isOnline` flag from `@react-native-community/netinfo`
+and a `queue: QueuedMessage[]` persisted via `react-native-mmkv`, wired
+through zustand's `persist` middleware (a thin adapter maps MMKV's
+synchronous `getString`/`set`/`delete` onto the `Storage` interface `persist`
+expects — no async round trip, so the queue is hydrated before first render).
+The dependency runs one way: `chatStore` reaches into `offlineQueueStore`
+(checks `isOnline`, calls `enqueue`); `offlineQueueStore` never imports
+`chatStore` back.
 
-It was pulled for this pass: `react-native-mmkv` 3.x is a C++ TurboModule,
-which only works against a native binary that was actually compiled with
-the New Architecture enabled — not something a JS-only `expo start` reload
-can retrofit onto an already-installed app. Chasing that mismatch (stale
-dev-client installs, `newArchEnabled` needing to be true in both `app.json`
-*and* the generated `android/gradle.properties`, a full `prebuild --clean` +
-native rebuild being required after any native-module change) cost more
-debugging time than the feature was worth to keep in this pass, so it's cut
-rather than shipped half-working. See git history for the prior
-implementation if it's worth reinstating.
+`sendMessage` always does the same optimistic append to `chatStore.messages`
+first, online or offline — that part never forks. What forks is only the
+network step right after: online keeps the existing path (`upsertMessage`,
+then start the OpenRouter stream); offline calls `enqueue` and returns before
+touching the network — no assistant reply is requested at compose time, since
+the LLM call needs network too. It isn't dropped, though: `chatStore`
+subscribes to `offlineQueueStore` (one direction only — the queue store never
+imports `chatStore`) and calls `requestReplyForLatestTurn()` the moment the
+queue transitions from having items to being empty, i.e. every message from
+that offline burst has actually landed in Supabase. That requests exactly
+one reply for the conversation's current tail, not one per queued message —
+three messages sent offline read as one turn, the same way three lines typed
+back-to-back before hitting send would. The actual token streaming is a
+`streamAssistantReply()` helper closed over inside the store, called by both
+this path and `sendMessage`'s online branch — one implementation, two
+triggers, so there's still only one way a reply ever gets generated.
 
-The gap this leaves: a message sent while offline (or against a failing
-Supabase request) just fails like any other network error — surfaced via
-`chatStore`'s `error` state, no local persistence, no retry, no replay on
-reconnect. Nothing queues, nothing survives an app restart while offline.
+**Dedupe**, the part most worth defending live: every message `id` is a
+client-generated UUID assigned before any send is attempted, whether it goes
+out immediately or sits in the queue first. `upsertMessage` writes with
+`onConflict: "id"` against a `uuid primary key` column with no server
+default, so replaying a send with the same id is always an `UPDATE`, never a
+second `INSERT`. `flush()` leans on exactly this: strictly FIFO, `await`s
+each `upsertMessage` before starting the next, removes an item only after
+its upsert resolves, and on failure marks it `'failed'` and `break`s instead
+of skipping ahead. Removal-only-on-success means `queue[0]` is always "the
+oldest not-yet-confirmed message," so a second `flush()` (next reconnect, or
+a redundant NetInfo event while one's already running — guarded by
+`isFlushing`) resumes at exactly the right spot with no separate cursor.
+
+**Rendering pending state** adds no status field to `Message`.
+`MessageBubble` derives "pending" purely from whether the message's id is
+still in `offlineQueueStore`'s `queue` — once `flush()` removes it, the icon
+disappears on the next render with no explicit "mark as sent" call anywhere.
+`chatStore.init()` folds any still-queued messages into fetched history on
+load (same `mergeMessage` Realtime rows use), so a message queued in an
+earlier session still renders pending after a restart, once `init()` itself
+can reach Supabase.
+
+Pinned to `react-native-mmkv` **3.x** over the newer 4.x, which adds a
+`react-native-nitro-modules` peer dependency this project has no other use
+for; 3.x is a plain TurboModule and needs nothing beyond `newArchEnabled:
+true` (already set). Either version needs a real native rebuild
+(`prebuild --clean` + `run:android`) after being added.
 
 ## Bottlenecks at 200,000 users
 
@@ -124,8 +158,26 @@ tier, not the app code:
   "who answers" (a Postgres trigger + Edge Function, or a claimed-by lock
   column) — out of scope here since it needs a real backend function, not
   just a client-side change.
-- **No offline queue.** Removed — see the "Offline queue — removed" section
-  above for why and what the gap is in practice.
+- **Offline queue gaps** (see "Offline queue" above): a `flush()` killed
+  mid-send (process death, not just a dropped connection) can leave a
+  message whose upsert landed at Supabase but whose queue entry never got
+  removed locally — the next flush resends it, safely (same id upserts the
+  same row) but redundantly. Two devices flushing the same conversation's
+  queue concurrently aren't coordinated beyond that per-row upsert safety
+  net. A hung/timing-out send is handled no differently than any other
+  failure — marked `'failed'`, flush stops — so "definitely never arrived"
+  and "arrived but the response was lost" aren't distinguished, which is
+  exactly why retrying via the same id (rather than trying to detect
+  duplicates after the fact) is the safer strategy. And `chatStore.init()`
+  still needs network to fetch a `conversationId` before anything, queued
+  messages included, can render — a cold start while fully offline leaves
+  the queue intact in MMKV but invisible until `init()` succeeds, and
+  nothing retries it automatically on reconnect today. The reply
+  auto-requested once the queue fully drains (see "Offline queue" above)
+  only fires on a *complete* drain — a partial flush that hits a failure
+  requests no reply until a later reconnect clears the rest, so a batch that
+  keeps re-failing on its last message never gets answered until that one
+  message finally goes through.
 - Concurrent edits to the same message row are last-write-wins via `upsert`.
   There's no version vector or optimistic-lock check, so two clients patching
   the same assistant message id at once (shouldn't happen in the current
@@ -139,9 +191,9 @@ tier, not the app code:
 1. Auth + per-user conversation ownership — the current open RLS policy is
    the least defensible part of this system as soon as a second real user
    exists.
-2. Reinstate an offline queue (with a genuinely fresh New Architecture native
-   build backing `react-native-mmkv` from the start, rather than debugging it
-   under time pressure) — right now a message sent while offline is simply
-   lost, not deferred.
+2. Wire `chatStore.init()` to retry automatically on the same
+   offline-\>online transition that already triggers `offlineQueueStore`'s
+   flush, so a cold start while offline recovers on its own instead of
+   needing a manual relaunch.
 3. Move Realtime fan-out off "every client holds a direct Postgres
    subscription" before it's tested past a handful of concurrent users.
