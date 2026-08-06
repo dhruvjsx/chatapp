@@ -1,10 +1,9 @@
 # Architecture
 
 This is a living document, updated as each priority tier lands (see
-[CLAUDE.md](./CLAUDE.md)'s P0/P1/P2 order). Right now it covers the streaming
-chat + sync layer, since that's what exists. The native module section will
-be added once `ConversationExporter` is built; the offline-queue section once
-P1 lands.
+[CLAUDE.md](./CLAUDE.md)'s P0/P1/P2 order). It covers the streaming chat +
+sync layer. The native module section will be added once
+`ConversationExporter` is built.
 
 ## State and data flow
 
@@ -37,6 +36,30 @@ Realtime events coming back in are merged by id (`mergeMessage`), which
 serves double duty: it's what makes the phone pick up a second client's edits
 to the same conversation, and it's what makes the phone's own writes echoing
 back through Realtime a no-op instead of a duplicate bubble.
+
+## Offline queue — removed
+
+An earlier pass had a `store/offlineQueueStore.ts`: a separate Zustand store
+that detected connectivity via `@react-native-community/netinfo`, persisted
+a send queue through `react-native-mmkv`, and flushed it strictly FIFO on
+reconnect, with `chatStore.sendMessage` checking online status before
+deciding to send live or enqueue.
+
+It was pulled for this pass: `react-native-mmkv` 3.x is a C++ TurboModule,
+which only works against a native binary that was actually compiled with
+the New Architecture enabled — not something a JS-only `expo start` reload
+can retrofit onto an already-installed app. Chasing that mismatch (stale
+dev-client installs, `newArchEnabled` needing to be true in both `app.json`
+*and* the generated `android/gradle.properties`, a full `prebuild --clean` +
+native rebuild being required after any native-module change) cost more
+debugging time than the feature was worth to keep in this pass, so it's cut
+rather than shipped half-working. See git history for the prior
+implementation if it's worth reinstating.
+
+The gap this leaves: a message sent while offline (or against a failing
+Supabase request) just fails like any other network error — surfaced via
+`chatStore`'s `error` state, no local persistence, no retry, no replay on
+reconnect. Nothing queues, nothing survives an app restart while offline.
 
 ## Bottlenecks at 200,000 users
 
@@ -101,14 +124,8 @@ tier, not the app code:
   "who answers" (a Postgres trigger + Edge Function, or a claimed-by lock
   column) — out of scope here since it needs a real backend function, not
   just a client-side change.
-- No offline queue yet. If `upsertMessage` fails (device offline, request
-  timeout), the error is surfaced but the message is not retried or queued —
-  it's silently missing from Supabase even though it stayed visible,
-  "sent," in the local UI. This is the biggest gap and the top of the P1
-  list for a reason.
-- No dedupe-on-reconnect logic exists yet because there's no retry path to
-  dedupe against. The client-generated id is already in place specifically so
-  that P1 work is a queue + flush loop, not a redesign of the write path.
+- **No offline queue.** Removed — see the "Offline queue — removed" section
+  above for why and what the gap is in practice.
 - Concurrent edits to the same message row are last-write-wins via `upsert`.
   There's no version vector or optimistic-lock check, so two clients patching
   the same assistant message id at once (shouldn't happen in the current
@@ -122,7 +139,9 @@ tier, not the app code:
 1. Auth + per-user conversation ownership — the current open RLS policy is
    the least defensible part of this system as soon as a second real user
    exists.
-2. The offline queue (P1) — without it, message loss on flaky connections is
-   silent, which is worse than an obvious error.
+2. Reinstate an offline queue (with a genuinely fresh New Architecture native
+   build backing `react-native-mmkv` from the start, rather than debugging it
+   under time pressure) — right now a message sent while offline is simply
+   lost, not deferred.
 3. Move Realtime fan-out off "every client holds a direct Postgres
    subscription" before it's tested past a handful of concurrent users.

@@ -1,3 +1,4 @@
+import { MESSAGES_PAGE_SIZE, MIN_HISTORY_LOADER_MS, SYNC_EVERY_N_TICKS, UI_FLUSH_MS } from "@/constants/chat";
 import {
     createConversation,
     fetchLatestConversation,
@@ -9,7 +10,6 @@ import {
 } from "@/lib/chat";
 import { streamChatCompletion, type ChatMessage } from "@/lib/openrouter";
 import { generateId } from "@/utils/id";
-import { MESSAGES_PAGE_SIZE, MIN_HISTORY_LOADER_MS, SYNC_EVERY_N_TICKS, UI_FLUSH_MS } from "@/constants/chat";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { create } from "zustand";
 
@@ -34,6 +34,28 @@ let realtimeChannel: RealtimeChannel | null = null;
 // Sorting here means a message from another client always renders in its
 // correct chronological slot on first paint, not just after the echo of
 // this device's own write corrects its timestamp a few hundred ms later.
+// Supabase's PostgrestError (and most non-Error throws) carry a `.message`
+// but aren't `instanceof Error`, so a naive `instanceof` check discards the
+// real reason (RLS denial, bad column, network failure) behind a generic
+// string. PostgrestError also carries `code`/`details`/`hint` (e.g. Postgres
+// error code 42501 + a hint naming the missing RLS policy) that `.message`
+// alone often doesn't explain — worth surfacing all of it when present,
+// since this is the only diagnostic info available without device logs.
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const e = err as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown };
+    if (typeof e.message === "string") {
+      const parts = [e.message];
+      if (typeof e.code === "string" && e.code) parts.push(`code: ${e.code}`);
+      if (typeof e.details === "string" && e.details) parts.push(`details: ${e.details}`);
+      if (typeof e.hint === "string" && e.hint) parts.push(`hint: ${e.hint}`);
+      return parts.join("\n");
+    }
+  }
+  return fallback;
+}
+
 function mergeMessage(messages: Message[], incoming: Message): Message[] {
   const index = messages.findIndex((m) => m.id === incoming.id);
   if (index !== -1) {
@@ -73,6 +95,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const conversation = (await fetchLatestConversation()) ?? (await createConversation("Relay chat"));
       const messages = await fetchRecentMessages(conversation.id, MESSAGES_PAGE_SIZE);
+
       set({
         conversationId: conversation.id,
         messages,
@@ -98,7 +121,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set((state) => ({ messages: mergeMessage(state.messages, message) }));
       });
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : "Failed to load conversation." });
+      set({ error: errorMessage(err, "Failed to load conversation.") });
     }
   },
 
@@ -131,7 +154,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : "Failed to load older messages.",
+        error: errorMessage(err, "Failed to load older messages."),
         isLoadingOlder: false,
       });
     }
@@ -143,8 +166,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!trimmed || !conversationId || isStreaming) return;
 
     const now = new Date().toISOString();
+    const messageId = generateId();
+
     const userMessage: Message = {
-      id: generateId(),
+      id: messageId,
       conversation_id: conversationId,
       role: "user",
       content: trimmed,
@@ -152,6 +177,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       created_at: now,
       updated_at: now,
     };
+
     const assistantId = generateId();
     const assistantMessage: Message = {
       id: assistantId,
@@ -170,7 +196,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     upsertMessage(userMessage).catch((err) =>
-      set({ error: err instanceof Error ? err.message : "Failed to send message." })
+      set({ error: errorMessage(err, "Failed to send message.") })
     );
 
     const apiHistory: ChatMessage[] = [...history, userMessage].map((m) => ({
@@ -203,7 +229,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           role: "assistant",
           content: assistantContent,
           status,
-        }).catch((err) => set({ error: err instanceof Error ? err.message : "Failed to sync reply." }));
+        }).catch((err) => set({ error: errorMessage(err, "Failed to sync reply.") }));
       }
     };
 

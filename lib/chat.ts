@@ -2,7 +2,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 export type MessageRole = "user" | "assistant";
-export type MessageStatus = "pending" | "streaming" | "complete" | "error";
+export type MessageStatus = "streaming" | "complete" | "error";
 
 export type Conversation = {
   id: string;

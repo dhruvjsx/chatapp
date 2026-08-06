@@ -60,9 +60,18 @@ See [CLAUDE.md](./CLAUDE.md) for the full assignment brief and constraints.
   Supabase (throttled to ~300ms during streaming, always on completion), and
   merges incoming Supabase Realtime events so a second client (e.g. the future
   web dashboard) editing the same conversation doesn't produce duplicate rows.
-
 ## What's skipped (so far)
 
+- Offline queue — removed. An earlier pass had a separate Zustand store
+  (`store/offlineQueueStore.ts`) that detected connectivity via
+  `@react-native-community/netinfo` and persisted a FIFO send queue through
+  `react-native-mmkv`, but `react-native-mmkv` 3.x requires a genuinely
+  New-Architecture-compiled native binary (TurboModules), and that dependency
+  cost more debugging time than the feature was worth for this pass — see
+  ARCHITECTURE.md's "Offline / conflict model" for what this means in
+  practice (a send attempted while offline just fails like any other network
+  error, with no local persistence or replay). Worth reinstating as P1 work
+  if time allows.
 - Web dashboard — not started.
 - `ConversationExporter` Kotlin TurboModule — not started. The chat header
   ([components/chat/chat-header.tsx](./components/chat/chat-header.tsx)) has
@@ -71,8 +80,6 @@ See [CLAUDE.md](./CLAUDE.md) for the full assignment brief and constraints.
   ([lib/conversationExporter.ts](./lib/conversationExporter.ts)), so tapping
   it surfaces a clear "not available yet" alert instead of a crash — the
   native side is the only piece left to build.
-- Offline queue / MMKV persistence / connectivity detection — P1, not started.
-  Right now a send while offline just fails; there's no retry queue yet.
 - Multi-conversation UI — the app currently loads/creates a single ongoing
   conversation rather than letting you start new ones from the UI.
 - Stop/regenerate button, markdown rendering, dark-mode-specific polish — P2,
@@ -95,11 +102,16 @@ See [CLAUDE.md](./CLAUDE.md) for the full assignment brief and constraints.
   specifically for chat UIs — used here instead of hand-rolled scroll-offset
   tracking. Worth calling out explicitly since CLAUDE.md's phrasing assumes
   the v1 API.
+- A message sent while offline currently just fails like any other network
+  error — no local queue, no persistence, no replay on reconnect (see "What's
+  skipped" above).
 
 ## AI tools used
 
 - Claude Code: scaffolded the chat UI, the OpenRouter streaming client, and
-  the Zustand store wiring it to Supabase.
+  the Zustand store wiring it to Supabase; also built (and later removed) an
+  offline queue store, its MMKV/NetInfo wiring, and the related
+  `MessageBubble`/offline-banner UI.
 
 ## APK size
 

@@ -9,14 +9,14 @@ import { useChatStore } from "@/store/chatStore";
 import { FlashList } from "@shopify/flash-list";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    StyleSheet,
+    TextInput,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -52,8 +52,15 @@ export default function ChatScreen() {
     init();
   }, [init]);
 
+  // Surfaced as an Alert (not just the inline banner below) so the full,
+  // untruncated error is visible on a device with no attached debugger —
+  // the banner is capped at 2 lines and easy to miss, this isn't.
+  useEffect(() => {
+    if (error) Alert.alert("Something went wrong", error);
+  }, [error]);
+
   const handleSend = () => {
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim() || isStreaming || !conversationId) return;
     sendMessage(input);
     setInput("");
   };
@@ -136,8 +143,11 @@ export default function ChatScreen() {
           />
           <Pressable
             onPress={handleSend}
-            disabled={!input.trim() || isStreaming}
-            style={[styles.sendButton, { backgroundColor: tint, opacity: !input.trim() || isStreaming ? 0.5 : 1 }]}
+            disabled={!input.trim() || isStreaming || !conversationId}
+            style={[
+              styles.sendButton,
+              { backgroundColor: tint, opacity: !input.trim() || isStreaming || !conversationId ? 0.5 : 1 },
+            ]}
           >
             <ThemedText style={[styles.sendButtonText, { color: onTint }]}>
               {isStreaming ? "…" : "Send"}
