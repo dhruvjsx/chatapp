@@ -4,7 +4,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import type { Message } from "@/lib/chat";
-import { exportConversation, type ExportFormat } from "@/lib/conversationExporter";
+import { exportConversation } from "@/lib/conversationExporter";
 import { useChatStore } from "@/store/chatStore";
 import { FlashList } from "@shopify/flash-list";
 import { useCallback, useEffect, useState } from "react";
@@ -65,10 +65,10 @@ export default function ChatScreen() {
     setInput("");
   };
 
-  const handleExport = async (format: ExportFormat) => {
+  const handleExport = async () => {
     if (!conversationId) return;
     try {
-      const result = await exportConversation(conversationId, format);
+      const result = await exportConversation(conversationId);
       Alert.alert("Export complete", `Saved to ${result.uri}`);
     } catch (err) {
       Alert.alert("Export unavailable", err instanceof Error ? err.message : "Something went wrong.");

@@ -1,6 +1,5 @@
 import { ThemedText } from "@/components/themed-text";
 import { useThemeColor } from "@/hooks/use-theme-color";
-import type { ExportFormat } from "@/lib/conversationExporter";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { useState } from "react";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
@@ -9,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const HEADER_HEIGHT = 52;
 
 type ChatHeaderProps = {
-  onExport: (format: ExportFormat) => void;
+  onExport: () => void;
 };
 
 export function ChatHeader({ onExport }: ChatHeaderProps) {
@@ -21,9 +20,9 @@ export function ChatHeader({ onExport }: ChatHeaderProps) {
   const surfaceColor = useThemeColor({}, "surface");
   const backgroundColor = useThemeColor({}, "background");
 
-  const handleExport = (format: ExportFormat) => {
+  const handleExport = () => {
     setMenuOpen(false);
-    onExport(format);
+    onExport();
   };
 
   return (
@@ -58,14 +57,9 @@ export function ChatHeader({ onExport }: ChatHeaderProps) {
               { top: insets.top + HEADER_HEIGHT, backgroundColor: surfaceColor, borderColor },
             ]}
           >
-            <Pressable style={styles.menuItem} onPress={() => handleExport("markdown")}>
+            <Pressable style={styles.menuItem} onPress={handleExport}>
               <MaterialIcons name="description" size={18} color={textColor} />
               <ThemedText>Export as Markdown</ThemedText>
-            </Pressable>
-            <View style={[styles.menuDivider, { backgroundColor: borderColor }]} />
-            <Pressable style={styles.menuItem} onPress={() => handleExport("json")}>
-              <MaterialIcons name="code" size={18} color={textColor} />
-              <ThemedText>Export as JSON</ThemedText>
             </Pressable>
           </View>
         </Pressable>
@@ -112,8 +106,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 10,
-  },
-  menuDivider: {
-    height: StyleSheet.hairlineWidth,
   },
 });
